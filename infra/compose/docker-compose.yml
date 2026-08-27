@@ -1,0 +1,72 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: made-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - made-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: made-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${MADE_POSTGRES_DATABASE:-made_db}
+      POSTGRES_USER: ${MADE_POSTGRES_USERNAME:-made_user}
+      POSTGRES_PASSWORD: ${MADE_POSTGRES_PASSWORD:-made_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MADE_POSTGRES_USERNAME:-made_user} -d ${MADE_POSTGRES_DATABASE:-made_db}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - made-network
+
+  made-core-worker:
+    build:
+      context: ../..
+      dockerfile: services/made-core/Dockerfile
+    container_name: made-core-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      MADE_REDIS_HOST: redis
+      MADE_REDIS_PORT: 6379
+      MADE_POSTGRES_HOST: postgres
+      MADE_POSTGRES_PORT: 5432
+      MADE_POSTGRES_DATABASE: ${MADE_POSTGRES_DATABASE:-made_db}
+      MADE_POSTGRES_USERNAME: ${MADE_POSTGRES_USERNAME:-made_user}
+      MADE_POSTGRES_PASSWORD: ${MADE_POSTGRES_PASSWORD:-made_password}
+      MADE_INPUT_STREAM: ${MADE_INPUT_STREAM:-events:normalized}
+      MADE_CONSUMER_GROUP: ${MADE_CONSUMER_GROUP:-made-core-processors}
+      MADE_CONSUMER_NAME: ${MADE_CONSUMER_NAME:-worker-1}
+      MADE_DEAD_LETTER_STREAM: ${MADE_DEAD_LETTER_STREAM:-events:dead-letter}
+      MADE_TELEGRAM_BOT_TOKEN: ${MADE_TELEGRAM_BOT_TOKEN:-}
+      MADE_TELEGRAM_CHAT_ID: ${MADE_TELEGRAM_CHAT_ID:-}
+    networks:
+      - made-network
+
+networks:
+  made-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:
