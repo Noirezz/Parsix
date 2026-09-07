@@ -105,12 +105,12 @@ def test_binance_normalizer_rejects_missing_symbol():
         normalizer.normalize(raw)
 
 
-def test_binance_normalizer_rejects_missing_bid_or_ask():
+def test_binance_normalizer_rejects_missing_price_fields():
     normalizer = BinanceNormalizer()
     raw = _make_raw_event(
-        payload={"symbol": "BTCUSDT", "bidPrice": "64000.0"},  # Missing askPrice
+        payload={"symbol": "BTCUSDT"},
     )
-    with pytest.raises(NormalizerError, match="Missing required field 'askPrice'"):
+    with pytest.raises(NormalizerError, match="Missing required price fields"):
         normalizer.normalize(raw)
 
 
@@ -121,3 +121,41 @@ def test_binance_normalizer_rejects_malformed_numeric():
     )
     with pytest.raises(NormalizerError, match="Invalid numeric value"):
         normalizer.normalize(raw)
+
+
+def test_binance_normalizer_futures_funding_rate():
+    normalizer = BinanceNormalizer()
+    raw = _make_raw_event(
+        payload={
+            "symbol": "BTCUSDT",
+            "bidPrice": "65000",
+            "askPrice": "65001",
+            "lastPrice": "65000.5",
+            "fundingRate": "0.00010000",
+            "closeTime": 1700000000000,
+        },
+        metadata={"asset": "BTC", "symbol": "BTCUSDT", "market_type": "FUTURES"},
+    )
+    norm = normalizer.normalize(raw)
+
+    assert norm.market_type == MarketType.FUTURES
+    assert Decimal(str(norm.metadata.get("funding_rate"))) == Decimal("0.0001")
+    assert norm.event_id == "norm:binance:BTCUSDT:futures:1700000000000"
+
+
+def test_binance_normalizer_deterministic_event_id_duplicate_stability():
+    normalizer = BinanceNormalizer()
+    payload = {
+        "symbol": "BTCUSDT",
+        "bidPrice": "65000",
+        "askPrice": "65001",
+        "lastPrice": "65000.5",
+        "closeTime": 1700000000000,
+    }
+    raw1 = _make_raw_event(payload=payload, metadata={"market_type": "SPOT"})
+    raw2 = _make_raw_event(payload=payload, metadata={"market_type": "SPOT"})
+
+    norm1 = normalizer.normalize(raw1)
+    norm2 = normalizer.normalize(raw2)
+
+    assert norm1.event_id == norm2.event_id == "norm:binance:BTCUSDT:spot:1700000000000"

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic import Field
+from decimal import Decimal
+from typing import Any
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,8 +14,6 @@ class InfrastructureConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="MADE_",
-        env_file=".env",
-        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -31,6 +32,7 @@ class InfrastructureConfig(BaseSettings):
     dead_letter_stream: str = Field(default="events:dead-letter")
     pel_claim_min_idle_ms: int = Field(default=60000, ge=0)
     pel_claim_batch_size: int = Field(default=10, ge=1)
+    snapshot_freshness_ttl_seconds: float | None = Field(default=300.0, ge=0)
 
 
     postgres_host: str = Field(default="localhost")
@@ -46,6 +48,34 @@ class InfrastructureConfig(BaseSettings):
     telegram_timeout_seconds: float = Field(default=10.0, gt=0)
     telegram_max_retries: int = Field(default=3, ge=0)
     telegram_retry_base_delay_seconds: float = Field(default=1.0, ge=0)
+
+    telegram_topic_futures_futures: int | None = Field(default=None)
+    telegram_topic_spot_futures: int | None = Field(default=None)
+    telegram_topic_dex_futures: int | None = Field(default=None)
+    telegram_topic_funding: int | None = Field(default=None)
+    telegram_topic_general: int | None = Field(default=None)
+
+    price_spread_threshold_percent: Decimal = Field(default=Decimal("4.0"), validation_alias="MADE_PRICE_SPREAD_THRESHOLD_PERCENT")
+    funding_spread_threshold: Decimal = Field(default=Decimal("0.0005"), validation_alias="MADE_FUNDING_SPREAD_THRESHOLD")
+    funding_alert_cooldown_seconds: float = Field(default=3600.0, ge=0, validation_alias="MADE_FUNDING_ALERT_COOLDOWN_SECONDS")
+    funding_alert_min_change_percent: Decimal = Field(default=Decimal("0.02"), validation_alias="MADE_FUNDING_ALERT_MIN_CHANGE_PERCENT")
+    blacklisted_pairs: list[str] = Field(default_factory=lambda: ["ONUSDT"], validation_alias="MADE_BLACKLISTED_PAIRS")
+    homonym_max_price_ratio: Decimal = Field(default=Decimal("2.0"), validation_alias="MADE_HOMONYM_MAX_PRICE_RATIO")
+    homonym_auto_blacklist: bool = Field(default=True, validation_alias="MADE_HOMONYM_AUTO_BLACKLIST")
+
+    @field_validator(
+        "telegram_topic_futures_futures",
+        "telegram_topic_spot_futures",
+        "telegram_topic_dex_futures",
+        "telegram_topic_funding",
+        "telegram_topic_general",
+        mode="before",
+    )
+    @classmethod
+    def _empty_str_to_none(cls, v: Any) -> Any:
+        if v == "" or v is None:
+            return None
+        return v
 
 
     def get_redis_url(self) -> str:

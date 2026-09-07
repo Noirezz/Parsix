@@ -1,0 +1,52 @@
+# MADE Experimental Evaluation Default Configuration
+
+experiment:
+  seed: 42
+  name: "master_thesis_evaluation"
+
+generation:
+  assets:
+    - "BTC"
+    - "ETH"
+  base_prices:
+    BTC: 50000.0
+    ETH: 3000.0
+  volatility: 0.005
+  spread_pct: 0.0005
+  default_volume: 1.5
+  tick_interval_ms: 10
+
+workload:
+  default_event_count: 1000
+  accuracy_event_count: 2000
+  latency_event_counts:
+    - 100
+    - 1000
+    - 5000
+  throughput_rates:
+    - 10
+    - 50
+    - 100
+    - 250
+    - 500
+    - 1000
+    - 2000
+  duration_per_stage_seconds: 5.0
+  trials: 3
+  warmup_events: 50
+  warmup_seconds: 2.0
+  drain_seconds: 2.0
+  saturation_threshold_ratio: 0.90
+  max_allowed_backlog: 5
+
+isolation:
+  redis_stream: "events:normalized"
+  redis_consumer_group: "made-core-processors"
+  dead_letter_stream: "events:dead-letter"
+  use_mock_telegram: true
+
+paths:
+  results_raw: "experiments/results/raw"
+  results_csv: "experiments/results/csv"
+  results_summary: "experiments/results/summary"
+  reports_figures: "experiments/reports/figures"

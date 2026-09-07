@@ -1,0 +1,26 @@
+# Git and IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Python
+.venv
+venv
+ENV
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+*.egg-info
+
+# Node / Frontend
+web-dashboard/node_modules
+web-dashboard/dist
+
+# OS
+Thumbs.db
+Desktop.ini

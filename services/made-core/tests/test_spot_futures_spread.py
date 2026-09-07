@@ -367,3 +367,19 @@ def test_deterministic_selection_ignores_later_spot_futures_pairs(module, timest
     assert result.metric_value == abs(Decimal("110") - Decimal("100")) / (
         (Decimal("110") + Decimal("100")) / Decimal("2")
     ) * Decimal("100")
+
+
+def test_homonym_token_collision_is_rejected(module, timestamp, spot_normalized_event):
+    result = module.detect(
+        event_with_snapshots(
+            timestamp,
+            spot_normalized_event,
+            (
+                snapshot(timestamp, EventSource.BINANCE, Decimal("0.25"), market_type=MarketType.SPOT),
+                snapshot(timestamp, EventSource.BYBIT, Decimal("73.0"), market_type=MarketType.FUTURES),
+            ),
+        )
+    )
+    assert result.status is ResultStatus.NORMAL
+    assert result.metadata["insufficientContextReason"] == "homonym_symbol_price_mismatch"
+

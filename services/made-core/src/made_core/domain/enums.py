@@ -14,6 +14,10 @@ class EventSource(StrEnum):
     BYBIT = "BYBIT"
     OKX = "OKX"
     UNISWAP = "UNISWAP"
+    RAYDIUM = "RAYDIUM"
+    PANCAKESWAP = "PANCAKESWAP"
+    AERODROME = "AERODROME"
+    DEXSCREENER = "DEXSCREENER"
     OTHER = "OTHER"
 
 

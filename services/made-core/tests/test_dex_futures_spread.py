@@ -408,3 +408,19 @@ def test_reference_price_mode_behavior(timestamp, dex_normalized_event, mode, ex
     assert result.metadata["referencePrice"] == expected_reference
     assert result.metadata["referencePriceMode"] == mode.value
     assert result.metric_value == abs(Decimal("100") - Decimal("110")) / expected_reference * Decimal("100")
+
+
+def test_homonym_token_collision_is_rejected(module, timestamp, dex_normalized_event):
+    result = module.detect(
+        event_with_snapshots(
+            timestamp,
+            dex_normalized_event,
+            (
+                snapshot(timestamp, EventSource.RAYDIUM, Decimal("0.25"), market_type=MarketType.DEX),
+                snapshot(timestamp, EventSource.BYBIT, Decimal("73.0"), market_type=MarketType.FUTURES),
+            ),
+        )
+    )
+    assert result.status is ResultStatus.NORMAL
+    assert result.metadata["insufficientContextReason"] == "homonym_symbol_price_mismatch"
+

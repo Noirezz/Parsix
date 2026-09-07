@@ -129,3 +129,14 @@ def test_result_contains_required_detection_information(module, timestamp, norma
     assert result.event_id == normalized_event.event_id
     assert result.threshold == Decimal("1")
     assert result.metadata["referencePriceMode"] == "AVERAGE"
+
+
+def test_homonym_token_collision_is_rejected(module, timestamp, normalized_event):
+    # e.g., ONUSDT on Binance is $0.25, while on Bybit is $73.0 (spread > 50%)
+    result = module.detect(event_with_snapshots(timestamp, normalized_event, (
+        snapshot(timestamp, EventSource.BINANCE, Decimal("0.25")),
+        snapshot(timestamp, EventSource.BYBIT, Decimal("73.0")),
+    )))
+    assert result.status is ResultStatus.NORMAL
+    assert result.metadata["insufficientContextReason"] == "homonym_symbol_price_mismatch"
+

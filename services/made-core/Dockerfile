@@ -14,7 +14,7 @@ COPY infra /app/infra
 
 # Install dependencies and project in editable mode
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e /app/services/made-core
+    pip install --no-cache-dir -e /app
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \

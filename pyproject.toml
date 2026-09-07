@@ -15,6 +15,8 @@ dependencies = [
     "asyncpg>=0.29",
     "alembic>=1.13",
     "httpx>=0.27,<1",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 
@@ -24,17 +26,19 @@ dev = [
     "pytest>=8,<10",
     "pytest-asyncio>=0.23",
     "aiosqlite>=0.20",
+    "matplotlib>=3.8",
+    "pyyaml>=6.0",
 ]
 
-
-
 [tool.pytest.ini_options]
-testpaths = ["services/made-core/tests"]
-pythonpath = ["services/made-core/src"]
+testpaths = ["services/made-core/tests", "services/api/tests", "experiments/tests"]
+pythonpath = ["services/made-core/src", "services/api/src", "."]
 markers = [
     "integration: marks tests requiring real external containers/services (deselect with '-m \"not integration\"')",
+    "live: marks tests requiring live external network access (deselect with '-m \"not live\"')",
 ]
 
 [tool.setuptools.packages.find]
-where = ["services/made-core/src"]
+where = ["services/made-core/src", "services/api/src", "."]
+
 

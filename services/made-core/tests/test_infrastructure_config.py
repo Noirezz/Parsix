@@ -39,6 +39,11 @@ def test_infrastructure_config_env_overrides():
         "MADE_BATCH_SIZE": "50",
         "MADE_BLOCK_TIMEOUT_MS": "5000",
         "MADE_DEAD_LETTER_STREAM": "custom:dlq",
+        "MADE_TELEGRAM_TOPIC_FUTURES_FUTURES": "10",
+        "MADE_TELEGRAM_TOPIC_SPOT_FUTURES": "11",
+        "MADE_TELEGRAM_TOPIC_DEX_FUTURES": "12",
+        "MADE_TELEGRAM_TOPIC_FUNDING": "13",
+        "MADE_TELEGRAM_TOPIC_GENERAL": "15",
     }
     with mock.patch.dict(os.environ, env_vars, clear=False):
         config = InfrastructureConfig()
@@ -52,6 +57,11 @@ def test_infrastructure_config_env_overrides():
         assert config.batch_size == 50
         assert config.block_timeout_ms == 5000
         assert config.dead_letter_stream == "custom:dlq"
+        assert config.telegram_topic_futures_futures == 10
+        assert config.telegram_topic_spot_futures == 11
+        assert config.telegram_topic_dex_futures == 12
+        assert config.telegram_topic_funding == 13
+        assert config.telegram_topic_general == 15
         assert config.get_redis_url() == "redis://:secretpassword@redis.prod.internal:6380/2"
 
 

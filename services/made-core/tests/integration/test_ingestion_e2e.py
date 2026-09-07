@@ -166,7 +166,7 @@ async def test_full_ingestion_to_detection_and_storage_e2e(memory_storage: Postg
     assert pipe_res is not None
     assert pipe_res.event_id == normalized_event.event_id
 
-    # 6. Verify Database Persistence
+    # 6. Verify Database Persistence (Event marked processed, normal result not polluting detection_results table)
     assert await memory_storage.is_event_processed(normalized_event.event_id) is True
     from sqlalchemy import select
     from made_core.infrastructure.postgres.models import DetectionResultRecord
@@ -174,8 +174,7 @@ async def test_full_ingestion_to_detection_and_storage_e2e(memory_storage: Postg
         stmt = select(DetectionResultRecord).where(DetectionResultRecord.event_id == normalized_event.event_id)
         res = await session.execute(stmt)
         detections = res.scalars().all()
-        assert len(detections) == 1
-        assert detections[0].asset == "BTC"
+        assert len(detections) == 0
 
 
     # 7. Verify Redis ACK

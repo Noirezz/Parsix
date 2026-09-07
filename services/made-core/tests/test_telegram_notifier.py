@@ -80,14 +80,132 @@ def test_format_alert_message_exact():
 
     formatted = adapter.format_alert_message(alert)
 
-    expected = (
-        "🚨 [HIGH] BTC anomaly detected\n\n"
-        "Summary: BTC anomaly detected by 2 module(s). Composite score: 4.4.\n"
-        "Priority: HIGH\n"
-        "Modules: futures-futures-spread, spot-futures-spread\n"
-        "Timestamp: 2026-08-26 18:25:00 UTC"
+    assert "🚨 <b>[HIGH] BTC Futures Spread Anomaly</b>" in formatted
+    assert "2026-08-26 18:25:00 UTC" in formatted
+    assert "Modules:" not in formatted  # Module name omitted from body as topic indicates category
+
+
+def test_format_alert_message_with_exchange_prices():
+    config = InfrastructureConfig(
+        telegram_bot_token="test_token",
+        telegram_chat_id="12345",
     )
-    assert formatted == expected
+    adapter = TelegramNotificationAdapter(config=config)
+    alert = Alert(
+        alert_id="alt-tg-rich",
+        timestamp=TS,
+        asset="BTC",
+        priority=Priority.HIGH,
+        title="[HIGH] BTC Futures Spread",
+        summary="Spread detected",
+        anomaly_score=Decimal("4.85"),
+        triggered_modules=("futures-futures-spread",),
+        details={
+            "firstSource": "Binance",
+            "firstMarketType": "Futures",
+            "firstPrice": "68500.00",
+            "firstSymbol": "BTCUSDT",
+            "secondSource": "Bybit",
+            "secondMarketType": "Futures",
+            "secondPrice": "65200.00",
+            "secondSymbol": "BTCUSDT",
+            "spreadPercent": "4.85",
+        },
+    )
+
+    formatted = adapter.format_alert_message(alert)
+    assert "🚨 <b>[HIGH] BTC Futures Spread Anomaly</b>" in formatted
+    assert "📊 <b>Спред:</b> <code>+4.85%</code>" in formatted
+    assert "• <b>Binance Futures:</b> <code>$68,500.00</code>" in formatted
+    assert "• <b>Bybit Futures:</b> <code>$65,200.00</code>" in formatted
+
+    # Test keyboard buttons
+    markup = adapter.build_inline_keyboard(alert)
+    assert markup is not None
+    assert "inline_keyboard" in markup
+    buttons = markup["inline_keyboard"][0]
+    assert len(buttons) == 2
+    assert buttons[0]["text"] == "🟡 Binance Futures"
+    assert "binance.com/en/futures/BTCUSDT" in buttons[0]["url"]
+    assert buttons[1]["text"] == "⚫ Bybit Futures"
+    assert "bybit.com/trade/usdt/BTCUSDT" in buttons[1]["url"]
+
+
+def test_format_alert_message_funding():
+    config = InfrastructureConfig(
+        telegram_bot_token="test_token",
+        telegram_chat_id="12345",
+    )
+    adapter = TelegramNotificationAdapter(config=config)
+    alert = Alert(
+        alert_id="alt-tg-fund",
+        timestamp=TS,
+        asset="BTC",
+        priority=Priority.HIGH,
+        title="[HIGH] BTC Funding Spread",
+        summary="Funding divergence detected",
+        anomaly_score=Decimal("0.085"),
+        triggered_modules=("funding-spread",),
+        details={
+            "firstSource": "Binance",
+            "secondSource": "Bybit",
+            "firstFundingRate": "0.0005",
+            "secondFundingRate": "-0.00035",
+            "fundingSpreadPercent": "0.0850",
+        },
+    )
+
+    formatted = adapter.format_alert_message(alert)
+    assert "🚨 <b>[HIGH] BTC Funding Anomaly</b>" in formatted
+    assert "📊 <b>Розбіжність Funding:</b> <code>0.0850%</code>" in formatted
+    assert "• <b>Binance Futures:</b> <code>+0.0500%</code>" in formatted
+    assert "• <b>Bybit Futures:</b> <code>-0.0350%</code>" in formatted
+
+
+def test_format_alert_message_dex_futures():
+    config = InfrastructureConfig(
+        telegram_bot_token="test_token",
+        telegram_chat_id="12345",
+    )
+    adapter = TelegramNotificationAdapter(config=config)
+    alert = Alert(
+        alert_id="alt-tg-dex",
+        timestamp=TS,
+        asset="SOL",
+        priority=Priority.HIGH,
+        title="[HIGH] SOL DEX-Futures Arbitrage",
+        summary="DEX vs CEX Futures divergence detected",
+        anomaly_score=Decimal("6.25"),
+        triggered_modules=("dex-futures-spread",),
+        details={
+            "dexSource": "Raydium",
+            "dexName": "Raydium",
+            "dexPrice": "135.50",
+            "dexUrl": "https://dexscreener.com/solana/58o1b9q5wpwfwturfuk8h8uydg58j",
+            "dexLiquidityUsd": "5000000",
+            "futuresSource": "Binance",
+            "futuresPrice": "144.00",
+            "spreadPercent": "6.25",
+        },
+    )
+
+    formatted = adapter.format_alert_message(alert)
+    assert "🚨 <b>[HIGH] SOL DEX-Futures Arbitrage</b>" in formatted
+    assert "📊 <b>Спред (DEX vs CEX Short):</b> <code>+6.25%</code>" in formatted
+    assert "• 🦄 <b>Raydium (DEX Spot):</b> <code>$135.50</code>" in formatted
+    assert "• 📉 <b>Binance (CEX Futures):</b> <code>$144.00</code>" in formatted
+    assert "💧 <b>Ліквідність пулу:</b> <code>$5.0M</code>" in formatted
+
+    # Test interactive buttons
+    markup = adapter.build_inline_keyboard(alert)
+    assert markup is not None
+    buttons = markup["inline_keyboard"][0]
+    assert len(buttons) == 2
+    assert buttons[0]["text"] == "🦄 Купити на Raydium"
+    assert "dexscreener.com/solana" in buttons[0]["url"]
+    assert buttons[1]["text"] == "📉 Шорт на Binance Futures"
+    assert "binance.com/en/futures/SOLUSDT" in buttons[1]["url"]
+
 
 
 @pytest.mark.asyncio
@@ -115,7 +233,9 @@ async def test_successful_high_alert_delivery():
     assert req.url == "https://api.telegram.org/botsecret_token_123/sendMessage"
     payload = json.loads(req.content.decode("utf-8"))
     assert payload["chat_id"] == "-1009999"
-    assert "🚨 [HIGH] BTC anomaly detected" in payload["text"]
+    assert "🚨 <b>[HIGH] BTC Futures Spread Anomaly</b>" in payload["text"]
+    assert payload.get("parse_mode") == "HTML"
+    assert "reply_markup" in payload
 
 
 @pytest.mark.asyncio
@@ -145,8 +265,8 @@ async def test_successful_medium_alert_delivery():
 
     assert len(recorded_requests) == 1
     payload = json.loads(recorded_requests[0].content.decode("utf-8"))
-    assert "Priority: MEDIUM" in payload["text"]
-    assert "Modules: dex-futures-spread" in payload["text"]
+    assert "<b>[MEDIUM] BTC DEX-Futures Arbitrage</b>" in payload["text"]
+    assert payload.get("parse_mode") == "HTML"
 
 
 @pytest.mark.asyncio
@@ -359,3 +479,123 @@ async def test_async_context_manager_and_close():
         assert adapter._client is not None
 
     assert adapter._client is None
+
+
+def test_telegram_topic_routing_determination():
+    config = InfrastructureConfig(
+        telegram_bot_token="t",
+        telegram_chat_id="c",
+        telegram_topic_futures_futures=8,
+        telegram_topic_spot_futures=4,
+        telegram_topic_dex_futures=2,
+        telegram_topic_funding=6,
+        telegram_topic_general=15,
+    )
+    adapter = TelegramNotificationAdapter(config=config)
+
+    # 1. Futures-Futures module -> Topic 8
+    alert_ff = _make_alert(modules=("futures-futures-spread",))
+    assert adapter.get_target_topic_id(alert_ff) == 8
+
+    # 2. Spot-Futures module -> Topic 4
+    alert_sf = _make_alert(modules=("spot-futures-spread",))
+    assert adapter.get_target_topic_id(alert_sf) == 4
+
+    # 3. DEX-Futures module -> Topic 2
+    alert_dex = _make_alert(modules=("dex-futures-spread",))
+    assert adapter.get_target_topic_id(alert_dex) == 2
+
+    # 4. Funding module -> Topic 6
+    alert_fund = _make_alert(modules=("funding-spread",))
+    assert adapter.get_target_topic_id(alert_fund) == 6
+
+    # 5. Multiple modules with futures -> Topic 8
+    alert_multi = _make_alert(modules=("futures-futures-spread", "spot-futures-spread"))
+    assert adapter.get_target_topic_id(alert_multi) == 8
+
+    # 6. Unmapped module -> Topic 15 (General)
+    alert_custom = _make_alert(modules=("unknown-module",))
+    assert adapter.get_target_topic_id(alert_custom) == 15
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_alert_includes_message_thread_id():
+    captured_payload = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_payload
+        captured_payload = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1001}})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport)
+
+    config = InfrastructureConfig(
+        telegram_bot_token="test_token",
+        telegram_chat_id="-10012345",
+        telegram_topic_futures_futures=8,
+    )
+    adapter = TelegramNotificationAdapter(config=config, client=client)
+    alert = _make_alert(modules=("futures-futures-spread",))
+
+    await adapter.send_alert(alert)
+
+    assert captured_payload is not None
+    assert captured_payload["chat_id"] == "-10012345"
+    assert captured_payload["message_thread_id"] == 8
+    assert "🚨 <b>[HIGH] BTC Futures Spread Anomaly</b>" in captured_payload["text"]
+
+
+@pytest.mark.asyncio
+async def test_funding_alert_throttling_cooldown():
+    recorded_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded_requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1002}})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport)
+
+    config = InfrastructureConfig(
+        telegram_bot_token="test_token",
+        telegram_chat_id="-10012345",
+        funding_alert_cooldown_seconds=3600.0,
+        funding_alert_min_change_percent=Decimal("0.02"),
+    )
+    adapter = TelegramNotificationAdapter(config=config, client=client)
+
+    alert1 = Alert(
+        alert_id="alt-fund-1",
+        timestamp=TS,
+        asset="BTC",
+        priority=Priority.HIGH,
+        title="[HIGH] BTC Funding",
+        summary="Funding anomaly",
+        anomaly_score=Decimal("0.05"),
+        triggered_modules=("funding-spread",),
+        details={"fundingSpreadPercent": "0.0500"},
+    )
+
+    # First send -> Should be delivered
+    await adapter.send_alert(alert1)
+    assert len(recorded_requests) == 1
+
+    # Second send with identical spread immediately -> Throttled!
+    await adapter.send_alert(alert1)
+    assert len(recorded_requests) == 1  # No second request
+
+    # Third send with significantly different spread (+0.03% change >= 0.02% threshold) -> Delivered!
+    alert2 = Alert(
+        alert_id="alt-fund-2",
+        timestamp=TS,
+        asset="BTC",
+        priority=Priority.HIGH,
+        title="[HIGH] BTC Funding",
+        summary="Funding anomaly",
+        anomaly_score=Decimal("0.085"),
+        triggered_modules=("funding-spread",),
+        details={"fundingSpreadPercent": "0.0850"},
+    )
+    await adapter.send_alert(alert2)
+    assert len(recorded_requests) == 2

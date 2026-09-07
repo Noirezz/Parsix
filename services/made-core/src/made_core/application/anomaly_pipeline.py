@@ -61,6 +61,34 @@ class AnomalyProcessingPipeline:
 
         return self._alert_generator.generate(aggregate)
 
+    def process_results_detailed(
+        self,
+        results: Sequence[DetectionResult],
+    ) -> tuple[AggregatedResult | None, Alert | None]:
+        """Process results and return both candidate AggregatedResult and optional Alert."""
+        if results is None:
+            raise TypeError("results must not be None")
+
+        if not results:
+            return None, None
+
+        has_anomaly = False
+        for r in results:
+            if not isinstance(r, DetectionResult):
+                raise TypeError("all elements in results must be DetectionResult instances")
+            if r.status is ResultStatus.ANOMALY:
+                has_anomaly = True
+
+        if not has_anomaly:
+            return None, None
+
+        aggregate = self._aggregator.aggregate(results)
+        if aggregate is None:
+            return None, None
+
+        alert = self._alert_generator.generate(aggregate)
+        return aggregate, alert
+
     def process_pipeline_result(self, pipeline_result: PipelineExecutionResult) -> Alert | None:
         """Process the output of an upstream EventPipeline execution."""
         if pipeline_result is None:
@@ -72,3 +100,18 @@ class AnomalyProcessingPipeline:
             return None
 
         return self.process_results(pipeline_result.detection_results)
+
+    def process_pipeline_result_detailed(
+        self,
+        pipeline_result: PipelineExecutionResult,
+    ) -> tuple[AggregatedResult | None, Alert | None]:
+        """Process pipeline result returning both AggregatedResult and Alert."""
+        if pipeline_result is None:
+            raise TypeError("pipeline_result must not be None")
+        if not isinstance(pipeline_result, PipelineExecutionResult):
+            raise TypeError("pipeline_result must be an instance of PipelineExecutionResult")
+
+        if pipeline_result.status is not ValidationStatus.VALID:
+            return None, None
+
+        return self.process_results_detailed(pipeline_result.detection_results)

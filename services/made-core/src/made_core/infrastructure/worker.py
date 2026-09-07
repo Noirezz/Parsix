@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from pydantic import ValidationError
 
 from made_core.application.anomaly_pipeline import AnomalyProcessingPipeline
 from made_core.application.pipeline import EventPipeline
-from made_core.domain.enums import Priority, ValidationStatus
-from made_core.domain.models import Alert, PipelineExecutionResult
+from made_core.domain.enums import EventSource, MarketType, Priority, ReferencePriceMode, ValidationStatus
+from made_core.domain.models import Alert, MarketSnapshot, NormalizedEvent, PipelineExecutionResult
 from made_core.infrastructure.config import InfrastructureConfig
 from made_core.infrastructure.postgres.models import AlertRecord
 from made_core.infrastructure.postgres.repository import PostgresStorageAdapter
@@ -22,6 +25,58 @@ from made_core.infrastructure.telegram.notifier import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SnapshotCache:
+    """In-memory bounded cache storing the latest MarketSnapshot per (source, market_type, symbol)."""
+
+    def __init__(self, freshness_ttl_seconds: float | None = 300.0) -> None:
+        self._freshness_ttl_seconds = freshness_ttl_seconds
+        self._snapshots: dict[tuple[EventSource, MarketType, str], MarketSnapshot] = {}
+
+    def update_from_event(self, event: NormalizedEvent) -> MarketSnapshot:
+        funding_rate = None
+        raw_funding = event.metadata.get("funding_rate") or event.metadata.get("fundingRate")
+        if raw_funding is not None:
+            try:
+                funding_rate = Decimal(str(raw_funding))
+            except (InvalidOperation, TypeError, ValueError):
+                funding_rate = None
+
+        snapshot = MarketSnapshot(
+            timestamp=event.timestamp,
+            source=event.source,
+            market_type=event.market_type,
+            asset=event.asset,
+            symbol=event.symbol,
+            price=event.price,
+            bid=event.bid,
+            ask=event.ask,
+            volume=event.volume,
+            funding_rate=funding_rate,
+            metadata=event.metadata.copy(),
+        )
+        self._snapshots[(event.source, event.market_type, event.symbol)] = snapshot
+        return snapshot
+
+    def get_snapshots_for(
+        self,
+        asset: str,
+        symbol: str,
+        current_time: datetime | None = None,
+    ) -> tuple[MarketSnapshot, ...]:
+        result: list[MarketSnapshot] = []
+        for (source, market_type, sym), snap in list(self._snapshots.items()):
+            if snap.asset == asset and snap.symbol == symbol:
+                if self._freshness_ttl_seconds is not None and current_time is not None:
+                    age_seconds = abs((current_time - snap.timestamp).total_seconds())
+                    if age_seconds > self._freshness_ttl_seconds:
+                        continue
+                result.append(snap)
+        return tuple(result)
+
+    def clear(self) -> None:
+        self._snapshots.clear()
 
 
 class MadeCoreWorker:
@@ -35,6 +90,7 @@ class MadeCoreWorker:
         storage: PostgresStorageAdapter,
         telegram: TelegramNotificationAdapter,
         config: InfrastructureConfig | None = None,
+        snapshot_cache: SnapshotCache | None = None,
     ) -> None:
         self._consumer = consumer
         self._event_pipeline = event_pipeline
@@ -42,12 +98,54 @@ class MadeCoreWorker:
         self._storage = storage
         self._telegram = telegram
         self._config = config or InfrastructureConfig()
+        self._snapshot_cache = snapshot_cache or SnapshotCache(
+            freshness_ttl_seconds=self._config.snapshot_freshness_ttl_seconds
+        )
         self._running = False
 
     async def initialize(self) -> None:
-        """Initialize consumer and storage adapters."""
+        """Initialize consumer and storage adapters and sync module configurations."""
         await self._consumer.initialize()
         await self._storage.create_tables()
+        await self.sync_module_configs()
+
+    async def sync_module_configs(self) -> None:
+        """Synchronize dynamic module configurations from PostgreSQL into active DetectionModules."""
+        try:
+            configs = await self._storage.get_module_configs()
+            if not configs:
+                return
+
+            rule_executor = getattr(self._event_pipeline, "_executor", None)
+            registry = getattr(rule_executor, "_registry", None)
+            if registry is None:
+                return
+
+            for cfg_rec in configs:
+                mod_id = cfg_rec.module_id
+                if registry.contains(mod_id):
+                    # 1. Update module active/paused status
+                    registry.set_module_status(mod_id, cfg_rec.status)
+
+                    # 2. Update module threshold and reference price mode
+                    mod = registry.get(mod_id)
+                    if hasattr(mod, "update_config"):
+                        if mod_id == "funding-spread":
+                            mod.update_config(threshold=cfg_rec.threshold)
+                        else:
+                            ref_mode = None
+                            if cfg_rec.reference_price_mode:
+                                try:
+                                    ref_mode = ReferencePriceMode(cfg_rec.reference_price_mode)
+                                except ValueError:
+                                    pass
+                            mod.update_config(
+                                threshold=cfg_rec.threshold,
+                                reference_price_mode=ref_mode,
+                                max_price_ratio=cfg_rec.max_price_ratio,
+                            )
+        except Exception as err:
+            logger.warning("Failed syncing module configs from database: %s", err)
 
     async def _ack_message(self, message_id: str | bytes) -> None:
         """Acknowledge a Redis stream message."""
@@ -138,9 +236,17 @@ class MadeCoreWorker:
             logger.error("Database error checking idempotency for event %s: %s", event.event_id, db_err)
             raise
 
-        # 3. New event: Execute upstream Core pipeline
+        # 3. Update snapshot cache & get matching multi-source snapshots
+        self._snapshot_cache.update_from_event(event)
+        matching_snapshots = self._snapshot_cache.get_snapshots_for(
+            asset=event.asset,
+            symbol=event.symbol,
+            current_time=event.timestamp,
+        )
+
+        # 4. New event: Execute upstream Core pipeline with multi-source snapshots
         try:
-            pipeline_result = self._event_pipeline.process_event(event)
+            pipeline_result = self._event_pipeline.process_event(event, snapshots=matching_snapshots)
         except Exception as core_err:
             logger.error("Core EventPipeline processing failure for event %s: %s", event.event_id, core_err)
             raise
@@ -157,14 +263,18 @@ class MadeCoreWorker:
 
         # 5. Execute downstream AnomalyProcessingPipeline
         try:
-            alert = self._anomaly_pipeline.process_pipeline_result(pipeline_result)
+            aggregate, alert = self._anomaly_pipeline.process_pipeline_result_detailed(pipeline_result)
         except Exception as anom_err:
             logger.error("Downstream AnomalyProcessingPipeline failure for event %s: %s", event.event_id, anom_err)
             raise
 
         # 6. Persist durable PostgreSQL state (atomic commit)
         try:
-            await self._storage.persist_processing_result(pipeline_result, alert=alert)
+            await self._storage.persist_processing_result(
+                pipeline_result,
+                alert=alert,
+                aggregate=aggregate,
+            )
         except Exception as db_err:
             logger.error("Database error persisting execution result for event %s: %s", event.event_id, db_err)
             raise
@@ -187,6 +297,9 @@ class MadeCoreWorker:
     async def process_batch(self) -> list[tuple[PipelineExecutionResult | None, Alert | None]]:
         """Read, reclaim, and process a batch of messages from Redis Streams."""
         results: list[tuple[PipelineExecutionResult | None, Alert | None]] = []
+
+        # 0. Sync latest module configurations from database
+        await self.sync_module_configs()
 
         # 1. Reclaim any stale pending messages from PEL
         stale_messages = await self._consumer.claim_stale_messages()
@@ -212,7 +325,11 @@ class MadeCoreWorker:
             while self._running:
                 if max_iterations is not None and iterations >= max_iterations:
                     break
-                await self.process_batch()
+                try:
+                    await self.process_batch()
+                except Exception as batch_err:
+                    logger.error("Error in worker processing batch: %s", batch_err)
+                    await asyncio.sleep(0.5)
                 iterations += 1
         finally:
             self._running = False

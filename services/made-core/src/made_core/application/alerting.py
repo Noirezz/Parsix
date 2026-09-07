@@ -25,6 +25,17 @@ class DefaultAlertGenerator(AlertGenerator):
             f"Composite score: {aggregate.composite_anomaly_score}."
         )
 
+        # Extract enriched observation metadata from underlying detection results
+        source_details: dict[str, object] = {}
+        for r in aggregate.source_results:
+            if r.metadata:
+                source_details.update(r.metadata)
+            if r.status.value == "ANOMALY":
+                if "spread" in r.module_id and "funding" not in r.module_id and r.metric_value is not None:
+                    source_details["spreadPercent"] = f"{r.metric_value:.2f}"
+                elif "funding" in r.module_id and r.metric_value is not None:
+                    source_details["fundingSpreadPercent"] = f"{r.metric_value * 100:.4f}"
+
         details = {
             "aggregationId": aggregate.aggregation_id,
             "correlationId": aggregate.correlation_window.correlation_id,
@@ -35,6 +46,7 @@ class DefaultAlertGenerator(AlertGenerator):
             "moduleCount": aggregate.module_count,
             "windowStart": aggregate.correlation_window.window_start.isoformat(),
             "windowEnd": aggregate.correlation_window.window_end.isoformat(),
+            **source_details,
         }
 
         alert_id = f"alert:{aggregate.asset}:{aggregate.aggregation_id}"

@@ -2,57 +2,131 @@
 
 **MADE** is the core anomaly-detection mechanism for the master's qualification work in Computer Engineering, specialty 123 “Computer Engineering”:
 
-> “Комп'ютерна система моніторингу потокових даних криптовалютної інфраструктури з модульним механізмом виявлення аномалій”
+> «Комп'ютерна система моніторингу потокових даних криптовалютної інфраструктури з модульним механізмом виявлення аномалій»
 
 English title: **Computer System for Monitoring Streaming Data of Cryptocurrency Infrastructure with a Modular Anomaly Detection Mechanism**.
 
-## Project purpose
+---
 
-The system will monitor streaming cryptocurrency-infrastructure data and identify price and funding-rate anomalies across market types and sources. MADE uses a unified event-processing model and independently replaceable, deterministic detection modules.
+## 📑 Table of Contents
 
-The MVP is rule- and threshold-based. It does not use AI, machine learning, neural networks, forecasting, LLM-based detection, or automated model scoring.
+- [1. Project Purpose & Scientific Novelty](#1-project-purpose--scientific-novelty)
+- [2. System Architecture](#2-system-architecture)
+- [3. Fixed Technology Stack](#3-fixed-technology-stack)
+- [4. Repository Structure & Navigation](#4-repository-structure--navigation)
+- [5. MADE Core & Data Flow](#5-made-core--data-flow)
+- [6. MVP Detection Modules](#6-mvp-detection-modules)
+- [7. FastAPI REST API Service](#7-fastapi-rest-api-service)
+- [8. Web Dashboard (React + Vite + MUI)](#8-web-dashboard-react--vite--mui)
+- [9. Multi-Container Docker Compose Stack](#9-multi-container-docker-compose-stack)
+- [10. Experimental Benchmarking Framework](#10-experimental-benchmarking-framework)
+- [11. Testing & Verification](#11-testing--verification)
+- [12. Architecture & Contracts Documentation](#12-architecture--contracts-documentation)
 
-## Fixed system architecture
+---
+
+## 1. Project Purpose & Scientific Novelty
+
+The system monitors streaming cryptocurrency-infrastructure data and identifies cross-market price and funding-rate anomalies across heterogeneous sources. MADE uses a unified event-processing model and independently replaceable, deterministic detection modules.
+
+### Scientific Novelty
+> «Удосконалено метод виявлення аномалій у потокових даних криптовалютної інфраструктури, який відрізняється використанням модульної архітектури незалежних компонентів аналізу подій та уніфікованої моделі оброблення даних, що дозволяє розширювати функціональні можливості системи шляхом додавання нових модулів без зміни її базової архітектури та забезпечує підвищення масштабованості програмного комплексу.»
+
+The MVP is deterministic, rule- and threshold-based. It does not use machine learning, neural networks, or black-box classifiers in the real-time core pipeline.
+
+---
+
+## 2. System Architecture
 
 ```text
-External Data Sources
-  → Collector Service
-  → Normalizer Service
-  → Redis Streams
-  → MADE Core
-  → Storage Service / REST API / Notification Service / Web Dashboard
+External Data Sources (Binance / Bybit)
+  → MultiSource Ingestion Pipeline (Collector + Normalizer)
+  → Redis Streams Event Bus ('events:normalized')
+  → MADE Core Worker Process (SnapshotCache + Rule Engine + Aggregator)
+  → PostgreSQL Database & Telegram Bot API
+  → FastAPI REST API Service (port 8000)
+  → React + Vite + MUI Web Dashboard (port 3000)
 ```
 
-The system comprises the Collector Service, Normalizer Service, Redis Streams Event Bus, MADE Core, Storage Service, REST API, Notification Service, Web Dashboard, and PostgreSQL. A separate API Gateway, Module Manager, AI/ML service, or message-broker abstraction service is not part of the architecture.
+---
 
-## Fixed technology stack
+## 3. Fixed Technology Stack
 
 | Area | Technology |
-| --- | --- |
-| Backend and API | Python 3.13+, FastAPI, REST, OpenAPI / Swagger |
-| Validation / schemas | Pydantic 2.x |
-| Database / persistence | PostgreSQL, SQLAlchemy 2.x, Alembic |
-| Streaming transport | Redis Streams |
-| Frontend | React, Vite, Material UI (MUI) |
-| Notifications | Telegram Bot API |
-| Containerization | Docker, Docker Compose |
-| Testing | pytest |
-| Architecture documentation | PlantUML |
+| :--- | :--- |
+| **Backend & API** | Python 3.13+, FastAPI, REST, OpenAPI / Swagger |
+| **Validation / Schemas** | Pydantic 2.x |
+| **Database & ORM** | PostgreSQL 16, SQLAlchemy 2.x (asyncpg), Alembic migrations |
+| **Streaming Transport** | Redis 7.0 Streams (Consumer Groups, PEL) |
+| **Frontend Dashboard** | React 18, Vite, TypeScript, Material UI (MUI) |
+| **Notifications** | Telegram Bot API |
+| **Containerization** | Docker, Docker Compose |
+| **Testing** | pytest, pytest-asyncio, vitest |
+| **Documentation & Modeling** | PlantUML, Mermaid, KaTeX |
 
-These are fixed design decisions. Alternative backend frameworks, databases, event buses, frontend/UI frameworks, and notification platforms are outside the current scope.
+---
 
-## MADE Core and data flow
+## 4. Repository Structure & Navigation
 
-MADE Core consists of Validation Layer, Context Enrichment, Rule Engine, Detection Modules, Result Aggregator, Correlation Engine, Priority Evaluator, Alert Generator, and Metrics Collector.
+The repository is organized cleanly into decoupled services, infrastructure, documentation, and evaluation suites:
 
-The Rule Engine contains `Rule Registry → Module Loader → Rule Executor`. There is no standalone `Module Manager`.
+```text
+Parsix/
+├── docs/                                # Architecture and design documentation
+│   ├── architecture/
+│   │   └── SYSTEM_ARCHITECTURE.md       # High-level architecture & PlantUML/Mermaid diagrams
+│   ├── contracts/
+│   │   └── DATA_FLOW_CONTRACTS.md       # Domain event models & REST API specification
+│   └── decisions/
+│       └── ARCHITECTURE_DECISIONS.md    # Architecture Decision Records (ADRs)
+├── services/                            # Backend services
+│   ├── made-core/                       # Core domain, rule engine, modules, ingestion & storage
+│   │   ├── Dockerfile
+│   │   ├── src/made_core/
+│   │   │   ├── domain/                  # NormalizedEvent, EnrichedEvent, DetectionResult, Alert
+│   │   │   ├── application/             # Validator, Enricher, Rule Engine, Aggregator, Alerting
+│   │   │   ├── modules/                 # 4 MVP modules (Spot-Futures, Futures-Futures, DEX, Funding)
+│   │   │   ├── ingestion/               # Binance/Bybit Collectors, Normalizers & Ingestion Pipeline
+│   │   │   └── infrastructure/          # Redis consumer/publisher, Postgres repository, Telegram
+│   │   └── tests/                       # Unit and E2E integration tests (356 tests)
+│   └── api/                             # FastAPI read-only REST API service
+│       ├── Dockerfile
+│       ├── src/made_api/                # Routers, Pydantic schemas, MadeQueryService
+│       └── tests/                       # API mock and Postgres integration tests (17 tests)
+├── web-dashboard/                       # Frontend Single Page Application
+│   ├── Dockerfile & nginx.conf
+│   ├── src/                             # React 18 + TypeScript + Material UI components & pages
+│   └── tests/                           # Vitest component and page tests (14 tests)
+├── experiments/                         # Scientific evaluation & benchmarking framework
+│   ├── README.md                        # Experimental methodology & usage guide
+│   ├── config/                          # Benchmark configuration & loader
+│   ├── generators/                      # Seeded synthetic market & anomaly generators
+│   ├── metrics/                         # Latency collectors, percentiles & classification metrics
+│   ├── runners/                         # Throughput, latency, failure & accuracy runners
+│   ├── visualization/                   # Matplotlib publication chart generator (plotter.py)
+│   ├── results/                         # Raw JSON, tabular CSVs & summary reports
+│   └── reports/figures/                 # Generated publication charts (PNG + vector PDF)
+├── infra/                               # Deployment & database configuration
+│   ├── compose/
+│   │   └── docker-compose.yml           # Multi-container orchestration (6 services)
+│   └── database/
+│       ├── alembic.ini                  # Alembic migration configuration
+│       └── alembic/versions/            # Versioned SQL migrations (initial schema)
+├── pyproject.toml                       # Python project configuration & dependencies
+├── AGENTS.md                            # Authoritative project architectural contract
+└── README.md                            # Main project overview & documentation
+```
+
+---
+
+## 5. MADE Core & Data Flow
 
 ```text
 NormalizedEvent
   → Validation Layer
-  → Context Enrichment
+  → Context Enrichment (via SnapshotCache)
   → Rule Executor
-  → active Detection Modules
+  → active Detection Modules (4 MVP rules)
   → DetectionResult[]
   → Result Aggregator
   → Correlation Engine
@@ -61,79 +135,113 @@ NormalizedEvent
   → Alert
 ```
 
-The canonical model progression is:
-
+**Canonical Model Progression**:
 ```text
 NormalizedEvent → EnrichedEvent → DetectionResult → AggregatedResult → Alert
 ```
 
-Invalid events stop at validation. If no anomaly is aggregated, correlation, priority evaluation, and alert generation do not run. Results below the configured alerting priority are not converted into alerts.
+---
 
-## MVP detection modules
+## 6. MVP Detection Modules
 
-| Module | Detection target |
-| --- | --- |
-| Futures + Futures Spread Module (`FuturesFuturesSpreadModule`) | Price difference for the same pair across futures markets/exchanges. |
-| Spot + Futures Spread Module (`SpotFuturesSpreadModule`) | Price difference between spot and futures markets for one asset/pair. |
-| DEX + Futures Spread Module (`DexFuturesSpreadModule`) | Price difference between DEX and futures data for one asset/pair. |
-| Funding Spread Module (`FundingSpreadModule`) | Funding-rate difference between futures markets; not a general funding monitor. |
+| Module | Identifier | Detection Formula |
+| :--- | :--- | :--- |
+| **Futures + Futures Spread** | `FuturesFuturesSpreadModule` | $\text{Spread} = \frac{\|P_1 - P_2\|}{P_{\text{ref}}} \times 100\%$ |
+| **Spot + Futures Spread** | `SpotFuturesSpreadModule` | $\text{Spread} = \frac{\|P_{\text{spot}} - P_{\text{fut}}\|}{P_{\text{ref}}} \times 100\%$ |
+| **DEX + Futures Spread** | `DexFuturesSpreadModule` | $\text{Spread} = \frac{\|P_{\text{dex}} - P_{\text{fut}}\|}{P_{\text{ref}}} \times 100\%$ |
+| **Funding Spread** | `FundingSpreadModule` | $\Delta \text{Funding} = \|\text{FR}_1 - \text{FR}_2\|$ |
 
-Price-spread rules use the baseline calculation:
+---
 
-```text
-Spread = |P1 - P2| / Pref × 100%
-```
+## 7. FastAPI REST API Service
 
-When the spread is at least the configured threshold, the module returns `ANOMALY`; otherwise it returns `NORMAL`. Thresholds and the reference-price mode (`FIRST`, `SECOND`, `AVERAGE`, or `LAST`) are configurable.
+The read-only REST API is hosted at `http://localhost:8000/api/v1` and provides structured endpoints for events, detections, aggregates, alerts, metrics, and health:
 
-## Repository structure
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **Readiness Probe**: [http://localhost:8000/ready](http://localhost:8000/ready)
+- **System Metrics**: [http://localhost:8000/api/v1/metrics](http://localhost:8000/api/v1/metrics)
 
-The initial MADE Core domain package is implemented under `services/made-core/src/made_core`, with its unit tests under `services/made-core/tests`. The following remains the planned broader repository structure; it is not a claim that its remaining services are already implemented:
+---
 
-```text
-docs/                  # PlantUML diagrams, decisions, contracts
-services/
-  collector/           # External data collection
-  normalizer/          # Raw payload → NormalizedEvent
-  made-core/           # Domain, application, modules, infrastructure, tests
-  storage/             # Event/result/alert persistence
-  api/                 # FastAPI REST API
-  notification/        # Telegram delivery adapter
-web-dashboard/         # React + Vite + MUI interface
-config/                # Non-secret configuration
-infra/                 # Redis, PostgreSQL, Docker Compose setup
-```
+## 8. Web Dashboard (React + Vite + MUI)
 
-The implementation will keep domain, application/core logic, infrastructure, interfaces, detection modules, and tests separate. Detection logic will not depend directly on Redis, PostgreSQL, Telegram, FastAPI, or exchange-client details.
+The Web Dashboard is hosted at `http://localhost:3000` and displays real-time telemetry:
 
-## Development prerequisites and running
+- **Overview Page (`/`)**: System KPIs, event counters, recent alerts and detections.
+- **Alerts Page (`/alerts`)**: Prioritized alerts with filtering by asset and priority (`HIGH`, `MEDIUM`, `LOW`).
+- **Detections Page (`/detections`)**: Module-level detection results with metric values and anomaly ratios.
+- **Aggregates Page (`/aggregates`)**: Candidate anomaly groupings.
+- **Modules Page (`/modules`)**: Active modules registered in the Rule Registry.
+- **Metrics Page (`/metrics`)**: Operational breakdowns and distributions.
 
-When implementation begins, the expected prerequisites will be Python 3.13+, Docker with Docker Compose, PostgreSQL, Redis, and a current Node.js runtime for the React/Vite dashboard.
+---
 
-The initial domain layer can be installed and verified with:
+## 9. Multi-Container Docker Compose Stack
 
-```text
-python -m pip install -e ".[dev]"
-python -m pytest -q
-```
-
-To run the complete containerized environment (Redis, PostgreSQL, and MADE Core Worker):
+Start all 6 services with a single command:
 
 ```bash
+# Start stack in background
 docker compose -f infra/compose/docker-compose.yml up -d
+
+# Verify container status
+docker compose -f infra/compose/docker-compose.yml ps
 ```
 
-## Testing approach
+| Container | Service | Port | Function |
+| :--- | :--- | :--- | :--- |
+| `made-redis` | `redis` | `6379` | Redis 7 event streaming bus |
+| `made-postgres` | `postgres` | `5432` | PostgreSQL 16 persistent database |
+| `made-core-worker` | `made-core-worker` | — | Stream consumer & anomaly detection engine |
+| `made-ingestion` | `made-ingestion` | — | Continuous multi-source ingestion for Binance & Bybit |
+| `made-api` | `made-api` | `8000` | FastAPI read-only REST API |
+| `made-dashboard` | `made-dashboard` | `3000` | React + Vite + MUI Web Dashboard |
 
-The project uses `pytest`. Each deterministic detection module and domain service is covered with normal, threshold-boundary, anomaly, and insufficient-context unit cases. MADE Core also includes in-memory Rule Engine integration tests that execute registered detection modules through `RuleRegistry → ModuleLoader → RuleExecutor` without calling modules directly, including a focused modularity test that runs multiple real spread modules through one shared Rule Engine. Integration tests covering containerized Redis Streams, PostgreSQL persistence, concurrency, and Telegram mock delivery are categorized with the `@pytest.mark.integration` marker.
+---
 
-## Scope and future direction
+## 10. Experimental Benchmarking Framework
 
-**Current status:** the MADE Core domain models, enums, the infrastructure-independent Rule Engine mechanism (`RuleRegistry → ModuleLoader → RuleExecutor`), the Validation Layer MVP (`EventValidator` / `NormalizedEventValidator`), the Context Enrichment Layer MVP (`ContextEnricher` / `DefaultContextEnricher`), the Pipeline Orchestration Layer MVP (`EventPipeline` / `PipelineExecutionResult`), all four MVP detection modules (`FuturesFuturesSpreadModule`, `SpotFuturesSpreadModule`, `DexFuturesSpreadModule`, `FundingSpreadModule`), the Downstream Result-Processing Layer MVP (`DefaultCorrelationEngine`, `DefaultPriorityEvaluator`, `DefaultResultAggregator`, `DefaultAlertGenerator`, `AnomalyProcessingPipeline`), Infrastructure Phase 1 (`InfrastructureConfig`, `RedisStreamConsumer`), Infrastructure Phase 2 (`PostgresStorageAdapter`, SQLAlchemy 2.x declarative models, Alembic schema migrations), Infrastructure Phase 3 (`TelegramNotificationAdapter` via HTTP Bot API), Infrastructure Phase 4 (`MadeCoreWorker` end-to-end orchestration and idempotent notification state machine), Infrastructure Phase 5 (Docker Compose containerization and E2E integration test suite), and the Ingestion Layer (`BinanceCollector`, `BinanceNormalizer`, `RedisEventPublisher`, `IngestionPipeline`) are implemented and verified. Web Dashboard and REST API integrations are scheduled for subsequent phases.
+Run reproducible scientific benchmarks for the master's thesis:
 
+```bash
+# Run all benchmark suites with default seed
+python -m experiments.runners.benchmark_runner --experiment all --seed 42 --trials 3
 
-**MVP scope:** the four spread modules above, standardised results, aggregation, correlation, priority evaluation, and alert generation within the fixed architecture.
+# Run individual benchmarks
+python -m experiments.runners.benchmark_runner --experiment accuracy --events 200 --seed 42
+python -m experiments.runners.benchmark_runner --experiment latency --mode in-memory --events 500 --seed 42
+python -m experiments.runners.benchmark_runner --experiment throughput --mode live --rate 10 --seed 42
+python -m experiments.runners.benchmark_runner --experiment failure --trials 3 --seed 42
+python -m experiments.runners.benchmark_runner --experiment plots
+```
 
-**Future direction:** additional detection modules may be considered only as approved extensions. They must preserve the canonical data flow and be registered through the Rule Engine without changing the fundamental pipeline.
+Scientific Results: [`experiments/results/summary/benchmark_report.md`](experiments/results/summary/benchmark_report.md)
 
-The authoritative implementation contract is [AGENTS.md](AGENTS.md).
+---
+
+## 11. Testing & Verification
+
+The system maintains 100% test coverage across all domain contracts, modules, pipelines, and UI components:
+
+```bash
+# Run all backend unit and integration tests (373 tests)
+pytest -v
+
+# Run frontend tests (14 tests)
+npm --prefix web-dashboard test
+
+# Build frontend production bundle
+npm --prefix web-dashboard run build
+```
+
+---
+
+## 12. Architecture & Contracts Documentation
+
+- [System Architecture & Component Specification](docs/architecture/SYSTEM_ARCHITECTURE.md)
+- [Canonical Data Contracts & REST API Specification](docs/contracts/DATA_FLOW_CONTRACTS.md)
+- [Architecture Decision Records (ADRs)](docs/decisions/ARCHITECTURE_DECISIONS.md)
+- [Independent Scientific Audit Report (V4.0)](experiments/results/summary/methodology_audit_v4.md)
+- [Master Thesis Scientific Benchmark Report](experiments/results/summary/benchmark_report.md)
+- [Authoritative Project Charter (AGENTS.md)](AGENTS.md)

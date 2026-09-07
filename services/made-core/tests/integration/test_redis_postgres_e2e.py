@@ -91,6 +91,8 @@ async def e2e_infra_config():
         consumer_group="test:made-core-processors",
         consumer_name="test-worker-1",
         dead_letter_stream="test:events:dead-letter",
+        telegram_bot_token="dummy-test-token",
+        telegram_chat_id="12345678",
     )
     return config
 
@@ -130,11 +132,11 @@ async def test_e2e_real_redis_postgres_success_flow(e2e_infra_config: Infrastruc
         config=e2e_infra_config,
     )
 
-    await worker.initialize()
-
-    # Clean test streams
+    # Clean test streams before initializing consumer group
     await r.delete(e2e_infra_config.input_stream)
     await r.delete(e2e_infra_config.dead_letter_stream)
+
+    await worker.initialize()
 
     event_id = f"e2e-evt-{int(datetime.now(UTC).timestamp())}"
     payload = {
@@ -210,9 +212,11 @@ async def test_e2e_real_redis_malformed_message_diverts_to_dlq(e2e_infra_config:
         config=e2e_infra_config,
     )
 
-    await worker.initialize()
+    # Clean test streams before initializing consumer group
     await r.delete(e2e_infra_config.input_stream)
     await r.delete(e2e_infra_config.dead_letter_stream)
+
+    await worker.initialize()
 
     # Publish malformed message
     msg_id = await r.xadd(e2e_infra_config.input_stream, {"payload": "invalid-json-payload-{"})

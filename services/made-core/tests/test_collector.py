@@ -149,3 +149,35 @@ async def test_binance_collector_async_context_manager():
     async with BinanceCollector(client=client) as collector:
         res = await collector.fetch_ticker("BTCUSDT")
         assert res["symbol"] == "BTCUSDT"
+
+
+@pytest.mark.asyncio
+async def test_binance_collector_fetch_futures_ticker_and_funding():
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        if "premiumIndex" in str(request.url):
+            return httpx.Response(200, json={"symbol": "BTCUSDT", "lastFundingRate": "0.00015"})
+        if "/fapi/v1/ticker/24hr" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "symbol": "BTCUSDT",
+                    "lastPrice": "65500.00",
+                    "bidPrice": "65499.00",
+                    "askPrice": "65501.00",
+                    "volume": "500.0",
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(mock_handler)
+    client = httpx.AsyncClient(transport=transport)
+    collector = BinanceCollector(client=client)
+
+    raw_event = await collector.collect("BTCUSDT", "BTC", market_type=MarketType.FUTURES)
+
+    assert raw_event.source == EventSource.BINANCE
+    assert raw_event.metadata["market_type"] == "FUTURES"
+    assert raw_event.payload["lastPrice"] == "65500.00"
+    assert raw_event.payload["fundingRate"] == "0.00015"
+
+    await collector.close()

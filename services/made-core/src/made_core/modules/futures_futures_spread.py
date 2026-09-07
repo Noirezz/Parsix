@@ -16,10 +16,14 @@ class FuturesFuturesSpreadConfig:
 
     threshold: Decimal
     reference_price_mode: ReferencePriceMode = ReferencePriceMode.AVERAGE
+    homonym_blacklist: Any = None
+    max_price_ratio: Decimal = Decimal("2.0")
 
     def __post_init__(self) -> None:
         if self.threshold <= Decimal("0"):
             raise ValueError("threshold must be greater than zero")
+        if self.max_price_ratio <= Decimal("1.0"):
+            raise ValueError("max_price_ratio must be greater than 1.0")
 
 
 class FuturesFuturesSpreadModule(DetectionModule):
@@ -32,6 +36,22 @@ class FuturesFuturesSpreadModule(DetectionModule):
 
     def get_module_id(self) -> str:
         return self.MODULE_ID
+
+    def get_config(self) -> FuturesFuturesSpreadConfig:
+        return self._config
+
+    def update_config(
+        self,
+        threshold: Decimal | None = None,
+        reference_price_mode: ReferencePriceMode | None = None,
+        max_price_ratio: Decimal | None = None,
+    ) -> None:
+        self._config = FuturesFuturesSpreadConfig(
+            threshold=threshold if threshold is not None else self._config.threshold,
+            reference_price_mode=reference_price_mode if reference_price_mode is not None else self._config.reference_price_mode,
+            homonym_blacklist=self._config.homonym_blacklist,
+            max_price_ratio=max_price_ratio if max_price_ratio is not None else self._config.max_price_ratio,
+        )
 
     def detect(self, event: EnrichedEvent) -> DetectionResult:
         if event is None:
@@ -47,6 +67,21 @@ class FuturesFuturesSpreadModule(DetectionModule):
         reference_price = self._reference_price(first.price, second.price)
         if reference_price is None or reference_price <= Decimal("0"):
             return self._insufficient_context_result(event, (first, second), "invalid_reference_price")
+
+        # 1. Fast O(1) Blacklist check
+        blacklist = self._config.homonym_blacklist
+        symbol = event.normalized_data.symbol
+        if blacklist is not None and (blacklist.is_blacklisted(symbol) or blacklist.is_blacklisted(event.asset)):
+            return self._insufficient_context_result(event, (first, second), "blacklisted_homonym_pair")
+
+        # 2. Check for homonym scale discrepancy (e.g. $0.25 vs $73.0 is 292x ratio)
+        min_p = min(first.price, second.price)
+        max_p = max(first.price, second.price)
+        if min_p > Decimal("0") and (max_p / min_p) >= self._config.max_price_ratio:
+            if blacklist is not None:
+                blacklist.add(symbol, reason=f"auto_detected_ratio_{max_p/min_p:.1f}x")
+                blacklist.add(event.asset, reason=f"auto_detected_ratio_{max_p/min_p:.1f}x")
+            return self._insufficient_context_result(event, (first, second), "homonym_symbol_price_mismatch")
 
         spread = abs(first.price - second.price) / reference_price * Decimal("100")
         status = ResultStatus.ANOMALY if spread >= self._config.threshold else ResultStatus.NORMAL
@@ -129,6 +164,15 @@ class FuturesFuturesSpreadModule(DetectionModule):
             "sources": [snapshot.source.value for snapshot in snapshots],
             "symbols": [snapshot.symbol for snapshot in snapshots],
         }
+        if len(snapshots) >= 2:
+            metadata["firstSource"] = snapshots[0].source.value
+            metadata["firstMarketType"] = snapshots[0].market_type.value
+            metadata["firstSymbol"] = snapshots[0].symbol
+            metadata["firstPrice"] = str(snapshots[0].price) if snapshots[0].price is not None else None
+            metadata["secondSource"] = snapshots[1].source.value
+            metadata["secondMarketType"] = snapshots[1].market_type.value
+            metadata["secondSymbol"] = snapshots[1].symbol
+            metadata["secondPrice"] = str(snapshots[1].price) if snapshots[1].price is not None else None
         if reference_price is not None:
             metadata["referencePrice"] = reference_price
         if insufficient_reason is not None:

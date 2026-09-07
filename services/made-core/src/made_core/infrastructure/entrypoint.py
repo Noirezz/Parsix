@@ -13,6 +13,7 @@ from made_core.application.alerting import DefaultAlertGenerator
 from made_core.application.anomaly_pipeline import AnomalyProcessingPipeline
 from made_core.application.correlation import DefaultCorrelationEngine
 from made_core.application.enrichment import DefaultContextEnricher
+from made_core.application.homonym_filter import HomonymBlacklist
 from made_core.application.pipeline import EventPipeline
 from made_core.application.priority import DefaultPriorityEvaluator
 from made_core.application.rule_engine import (
@@ -51,19 +52,55 @@ logging.basicConfig(
 logger = logging.getLogger("made_core.worker")
 
 
+from decimal import Decimal
+
 def create_default_worker(config: InfrastructureConfig | None = None) -> MadeCoreWorker:
     """Build a fully-configured MadeCoreWorker with all 4 MVP detection modules registered."""
     cfg = config or InfrastructureConfig()
 
-    # 1. Rule Engine and MVP Detection Modules
+    # 1. Homonym Blacklist & Rule Engine
+    price_thresh = cfg.price_spread_threshold_percent
+    funding_thresh = cfg.funding_spread_threshold
+    max_ratio = cfg.homonym_max_price_ratio
+
+    homonym_blacklist = HomonymBlacklist(
+        initial_blacklist=cfg.blacklisted_pairs,
+        max_price_ratio=max_ratio,
+        auto_blacklist=cfg.homonym_auto_blacklist,
+    )
+
     registry = InMemoryRuleRegistry()
-    registry.register(FuturesFuturesSpreadModule(FuturesFuturesSpreadConfig()))
-    registry.register(SpotFuturesSpreadModule(SpotFuturesSpreadConfig()))
-    registry.register(DexFuturesSpreadModule(DexFuturesSpreadConfig()))
-    registry.register(FundingSpreadModule(FundingSpreadConfig()))
+    registry.register(
+        FuturesFuturesSpreadModule(
+            FuturesFuturesSpreadConfig(
+                threshold=price_thresh,
+                homonym_blacklist=homonym_blacklist,
+                max_price_ratio=max_ratio,
+            )
+        )
+    )
+    registry.register(
+        SpotFuturesSpreadModule(
+            SpotFuturesSpreadConfig(
+                threshold=price_thresh,
+                homonym_blacklist=homonym_blacklist,
+                max_price_ratio=max_ratio,
+            )
+        )
+    )
+    registry.register(
+        DexFuturesSpreadModule(
+            DexFuturesSpreadConfig(
+                threshold=price_thresh,
+                homonym_blacklist=homonym_blacklist,
+                max_price_ratio=max_ratio,
+            )
+        )
+    )
+    registry.register(FundingSpreadModule(FundingSpreadConfig(threshold=funding_thresh)))
 
     loader = RegistryModuleLoader(registry)
-    executor = RuleEngineExecutor(registry=registry, module_loader=loader)
+    executor = RuleEngineExecutor(registry=registry, loader=loader)
 
     # 2. Upstream Core Pipeline
     validator = NormalizedEventValidator()
@@ -124,6 +161,9 @@ async def main() -> None:
                 signal.signal(getattr(signal, sig_name), lambda s, f: _signal_handler(s))
 
     async with worker:
+        purged = await worker._storage.purge_normal_detections()
+        if purged > 0:
+            logger.info("Purged %d legacy NORMAL detection records from database", purged)
         logger.info("MADE Core Worker started. Listening for stream events...")
         await worker.run()
 

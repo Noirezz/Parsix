@@ -67,7 +67,13 @@ dist-ssr/
 .idea/
 .vscode/
 *.swp
-*.swo
-*~
 .DS_Store
 Thumbs.db
+
+# Experimental benchmark outputs (keep .gitkeep)
+experiments/results/raw/*.json
+experiments/results/csv/*.csv
+experiments/reports/figures/*.png
+experiments/reports/figures/*.pdf
+!experiments/results/**/.gitkeep
+!experiments/reports/**/.gitkeep

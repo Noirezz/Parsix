@@ -99,3 +99,20 @@ class ProcessedEventRecord(Base):
         nullable=False,
         default=lambda: datetime.now(UTC),
     )
+
+
+class ModuleConfigRecord(Base):
+    """Database table for dynamic detection module configuration and thresholds."""
+
+    __tablename__ = "module_configs"
+
+    module_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    threshold: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    reference_price_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="AVERAGE")
+    max_price_ratio: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("2.0"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )

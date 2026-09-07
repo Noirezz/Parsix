@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 from made_core.domain.enums import MarketType, ResultStatus
 from made_core.domain.interfaces import DetectionModule
@@ -48,6 +49,18 @@ class FundingSpreadModule(DetectionModule):
 
     def get_module_id(self) -> str:
         return self.MODULE_ID
+
+    def get_config(self) -> FundingSpreadConfig:
+        return self._config
+
+    def update_config(
+        self,
+        threshold: Decimal | None = None,
+        **_kwargs: Any,
+    ) -> None:
+        self._config = FundingSpreadConfig(
+            threshold=threshold if threshold is not None else self._config.threshold,
+        )
 
     def detect(self, event: EnrichedEvent) -> DetectionResult:
         if event is None:
@@ -126,6 +139,12 @@ class FundingSpreadModule(DetectionModule):
         }
         if len(snapshots) >= 2:
             metadata["fundingRates"] = [snapshot.funding_rate for snapshot in snapshots]
+            metadata["firstSource"] = snapshots[0].source.value
+            metadata["firstSymbol"] = snapshots[0].symbol
+            metadata["firstFundingRate"] = str(snapshots[0].funding_rate) if snapshots[0].funding_rate is not None else None
+            metadata["secondSource"] = snapshots[1].source.value
+            metadata["secondSymbol"] = snapshots[1].symbol
+            metadata["secondFundingRate"] = str(snapshots[1].funding_rate) if snapshots[1].funding_rate is not None else None
         if insufficient_reason is not None:
             metadata["insufficientContextReason"] = insufficient_reason
         return metadata

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from decimal import Decimal, InvalidOperation
+
 from made_core.domain.interfaces import ContextEnricher
 from made_core.domain.models import EnrichedEvent, MarketContext, MarketSnapshot, NormalizedEvent
 
@@ -27,22 +29,30 @@ class DefaultContextEnricher(ContextEnricher):
             if s.asset == event.asset and s.symbol == event.symbol
         ]
 
+        funding_rate: Decimal | None = None
+        raw_funding = event.metadata.get("funding_rate") or event.metadata.get("fundingRate")
+        if raw_funding is not None:
+            try:
+                funding_rate = Decimal(str(raw_funding))
+            except (InvalidOperation, TypeError, ValueError):
+                funding_rate = None
+
+        self_snapshot = MarketSnapshot(
+            timestamp=event.timestamp,
+            source=event.source,
+            market_type=event.market_type,
+            asset=event.asset,
+            symbol=event.symbol,
+            price=event.price,
+            bid=event.bid,
+            ask=event.ask,
+            volume=event.volume,
+            funding_rate=funding_rate,
+            metadata=event.metadata.copy(),
+        )
+
         if not matching_snapshots:
-            matching_snapshots.append(
-                MarketSnapshot(
-                    timestamp=event.timestamp,
-                    source=event.source,
-                    market_type=event.market_type,
-                    asset=event.asset,
-                    symbol=event.symbol,
-                    price=event.price,
-                    bid=event.bid,
-                    ask=event.ask,
-                    volume=event.volume,
-                    funding_rate=None,
-                    metadata=event.metadata.copy(),
-                )
-            )
+            matching_snapshots.append(self_snapshot)
 
         context = MarketContext(
             asset=event.asset,

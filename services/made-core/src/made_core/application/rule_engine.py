@@ -29,8 +29,9 @@ class InMemoryRuleRegistry(RuleRegistry):
 
     def __init__(self) -> None:
         self._modules: dict[str, DetectionModule] = {}
+        self._module_status: dict[str, str] = {}
 
-    def register(self, module: DetectionModule) -> None:
+    def register(self, module: DetectionModule, status: str = "active") -> None:
         if not isinstance(module, DetectionModule):
             raise TypeError("module must implement DetectionModule")
 
@@ -40,9 +41,24 @@ class InMemoryRuleRegistry(RuleRegistry):
         if module_id in self._modules:
             raise DuplicateModuleRegistrationError(f"module '{module_id}' is already registered")
         self._modules[module_id] = module
+        self._module_status[module_id] = status
 
     def get_active_module_ids(self) -> Sequence[str]:
-        return tuple(self._modules)
+        return tuple(
+            mod_id
+            for mod_id in self._modules
+            if self._module_status.get(mod_id, "active") == "active"
+        )
+
+    def set_module_status(self, module_id: str, status: str) -> None:
+        if module_id not in self._modules:
+            raise UnknownModuleError(f"module '{module_id}' is not registered")
+        self._module_status[module_id] = status
+
+    def get_module_status(self, module_id: str) -> str:
+        if module_id not in self._modules:
+            raise UnknownModuleError(f"module '{module_id}' is not registered")
+        return self._module_status.get(module_id, "active")
 
     def contains(self, module_id: str) -> bool:
         return module_id in self._modules
